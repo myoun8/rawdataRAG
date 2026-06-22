@@ -1,0 +1,19 @@
+{
+  "chunk_id": "replace_doc_id__section__001",
+  "doc_id": "replace_doc_id",
+  "source_id": "REPLACE-001",
+  "text": "Document title > Section title\n\nChunk text should be able to stand alone and should include enough context for retrieval.",
+  "metadata": {
+    "instrument": "CANDOR | VSANS | NSE | COMMON",
+    "workflow_stage": "data_reduction",
+    "source_type": "manual",
+    "software": "replace_or_none",
+    "access_level": "public | internal | restricted",
+    "status": "current",
+    "owner": "replace_with_owner",
+    "last_reviewed": "YYYY-MM-DD",
+    "source_url_or_path": "originals/path/or/source/url",
+    "section": "Section title",
+    "citation_required": false
+  }
+}

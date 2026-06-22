@@ -1,0 +1,16 @@
+{
+  "question_id": "pack_eval_001",
+  "question": "Replace with realistic user question",
+  "expected_sources": ["SOURCE-001"],
+  "expected_workflow_stage": "data_reduction",
+  "expected_software": ["replace_or_none"],
+  "answer_should_include": [
+    "key concept 1",
+    "key concept 2"
+  ],
+  "answer_should_not_include": [
+    "wrong instrument workflow",
+    "legacy workflow unless explicitly labeled"
+  ],
+  "notes": "Optional reviewer notes"
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAG Evaluation Question",
+  "type": "object",
+  "required": ["question_id", "question", "expected_sources"],
+  "properties": {
+    "question_id": {"type": "string"},
+    "question": {"type": "string"},
+    "expected_sources": {"type": "array", "items": {"type": "string"}},
+    "expected_workflow_stage": {"type": "string"},
+    "expected_software": {"type": "array", "items": {"type": "string"}},
+    "answer_should_include": {"type": "array", "items": {"type": "string"}},
+    "answer_should_not_include": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "string"}
+  }
+}

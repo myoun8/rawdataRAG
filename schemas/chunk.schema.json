@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAG Chunk Record",
+  "type": "object",
+  "required": ["chunk_id", "doc_id", "source_id", "text", "metadata"],
+  "properties": {
+    "chunk_id": {"type": "string"},
+    "doc_id": {"type": "string"},
+    "source_id": {"type": "string"},
+    "text": {"type": "string"},
+    "metadata": {
+      "type": "object",
+      "required": ["instrument", "workflow_stage", "source_type", "access_level", "status", "source_url_or_path"],
+      "properties": {
+        "instrument": {"type": "string"},
+        "workflow_stage": {"type": "string"},
+        "source_type": {"type": "string"},
+        "software": {"type": "string"},
+        "access_level": {"type": "string", "enum": ["public", "internal", "restricted"]},
+        "status": {"type": "string"},
+        "owner": {"type": "string"},
+        "last_reviewed": {"type": "string"},
+        "source_url_or_path": {"type": "string"},
+        "section": {"type": "string"},
+        "citation_required": {"type": "boolean"}
+      }
+    }
+  }
+}

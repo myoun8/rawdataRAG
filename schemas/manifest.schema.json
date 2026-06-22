@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAG Pack Manifest Record",
+  "type": "object",
+  "required": ["doc_id", "source_id", "title", "instrument", "normalized_path", "access_level", "status"],
+  "properties": {
+    "doc_id": {"type": "string"},
+    "source_id": {"type": "string"},
+    "title": {"type": "string"},
+    "instrument": {"type": "string"},
+    "workflow_stages": {"type": "array", "items": {"type": "string"}},
+    "software": {"type": "array", "items": {"type": "string"}},
+    "normalized_path": {"type": "string"},
+    "chunk_path": {"type": "string"},
+    "access_level": {"type": "string"},
+    "status": {"type": "string"},
+    "owner": {"type": "string"},
+    "last_reviewed": {"type": "string"}
+  }
+}

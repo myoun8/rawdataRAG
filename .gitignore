@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Vector store / embeddings output
+chroma_db/
+*.index
+
+# Generated chunk files
+*_chunks.generated.jsonl
+
+# Evaluation output
+retrieval_results.csv
+retrieval_results_*.csv
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Logs
+*.log
