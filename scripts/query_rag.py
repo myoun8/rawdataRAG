@@ -61,7 +61,7 @@ import urllib.error
 from pathlib import Path
 
 try:
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer, CrossEncoder
     import chromadb
 except ImportError as exc:
     raise SystemExit(
@@ -70,7 +70,10 @@ except ImportError as exc:
     )
 
 # ── Config ───────────────────────────────────────────────────────────────────
-EMBED_MODEL         = "BAAI/bge-large-en-v1.5"
+EMBED_MODEL         = "nomic-ai/nomic-embed-text-v2-moe"
+RERANK_MODEL        = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+RERANK_FETCH_MULTIPLIER = 4   # over-fetch this many times --top from Chroma before reranking
+RERANK_FETCH_MIN        = 8  # ...but always fetch at least this many candidates
 DEVICE              = "cpu"
 CHROMA_PATH         = Path(__file__).parent.parent / "chroma_db"
 COLLECTION          = "ncnr_rag"
@@ -89,9 +92,10 @@ GB10_SSH_KEY_FILE_ENV_VAR = "GB10_SSH_KEY_FILE"
 DEFAULT_SSH_PORT          = 22
 DEFAULT_REMOTE_NIM_PORT   = 8001
 
-# BGE-large-en-v1.5: documents use no prefix; queries use this instruction prefix
-# to align asymmetric retrieval (see BAAI/bge-large-en-v1.5 model card).
-BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+# nomic-embed-text-v2-moe requires an instruction prefix on BOTH sides
+# (see nomic-ai/nomic-embed-text-v2-moe model card) -- this is the query-side prefix;
+# embed_and_ingest.py applies the matching "search_document: " prefix on the doc side.
+QUERY_PREFIX = "search_query: "
 
 # access_level cascade: each level includes all levels below it
 ACCESS_LEVEL_MAP = {
@@ -115,7 +119,7 @@ SYSTEM_PROMPT = (
 
 def embed_query(model, query: str) -> list:
     return model.encode(
-        BGE_QUERY_PREFIX + query,
+        QUERY_PREFIX + query,
         normalize_embeddings=True,
     ).tolist()
 
@@ -130,9 +134,25 @@ def build_chroma_filter(access_level: str, pack: str | None) -> dict:
     return {"$and": conditions}
 
 
-def build_context(results: dict) -> tuple[str, list[dict]]:
+def rerank(reranker: CrossEncoder, query: str, documents: list[str], metadatas: list[dict], top_n: int) -> list[tuple[str, dict]]:
+    """Cross-encoder rerank of Chroma's vector-search candidates.
+
+    Vector search alone ranks by embedding similarity, which struggles when
+    two documents genuinely overlap in topic (e.g. two docs that both mention
+    the same software). A cross-encoder scores each (query, candidate) pair
+    jointly instead of via separately-embedded vectors, which sharpens
+    ranking among already-relevant candidates.
+    """
+    if not documents:
+        return []
+    scores = reranker.predict([(query, doc) for doc in documents])
+    ranked = sorted(zip(scores, documents, metadatas), key=lambda x: x[0], reverse=True)
+    return [(doc, meta) for _, doc, meta in ranked[:top_n]]
+
+
+def build_context(chunks_raw: list[tuple[str, dict]]) -> tuple[str, list[dict]]:
     chunks = []
-    for text, meta in zip(results["documents"][0], results["metadatas"][0]):
+    for text, meta in chunks_raw:
         chunks.append({
             "source_id": meta.get("source_id", "unknown"),
             "section":   meta.get("section", ""),
@@ -438,7 +458,9 @@ def main():
         )
 
     print(f"Loading embedding model {EMBED_MODEL} ...")
-    embed_model = SentenceTransformer(EMBED_MODEL, device=DEVICE)
+    embed_model = SentenceTransformer(EMBED_MODEL, device=DEVICE, trust_remote_code=True)
+    print(f"Loading reranker {RERANK_MODEL} ...")
+    reranker = CrossEncoder(RERANK_MODEL, device=DEVICE)
 
     print("Connecting to Chroma ...")
     client = chromadb.PersistentClient(path=str(CHROMA_PATH))
@@ -453,10 +475,11 @@ def main():
     where_filter = build_chroma_filter(args.access_level, args.pack)
     query_vec    = embed_query(embed_model, args.query)
 
-    print(f"Retrieving top {args.top} chunks ...")
+    fetch_n = max(args.top * RERANK_FETCH_MULTIPLIER, RERANK_FETCH_MIN)
+    print(f"Retrieving top {fetch_n} candidates, reranking down to {args.top} ...")
     results = collection.query(
         query_embeddings=[query_vec],
-        n_results=args.top,
+        n_results=fetch_n,
         where=where_filter,
         include=["documents", "metadatas", "distances"],
     )
@@ -464,7 +487,8 @@ def main():
     if not results["documents"][0]:
         raise SystemExit("No chunks matched the query and filters. Try relaxing --access-level or --pack.")
 
-    context_str, chunks = build_context(results)
+    chunks_raw = rerank(reranker, args.query, results["documents"][0], results["metadatas"][0], args.top)
+    context_str, chunks = build_context(chunks_raw)
     user_message = f"Context:\n{context_str}\n\nQuestion: {args.query}"
 
     if args.backend == "ollama":

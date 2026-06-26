@@ -1,8 +1,8 @@
 """
-Embed normalized RAG chunks with a self-hosted BGE model and load into Chroma.
+Embed normalized RAG chunks with a self-hosted Nomic Embed model and load into Chroma.
 
 Assumptions (change at top if different):
-  - Model:   BAAI/bge-large-en-v1.5  (1024-dim, cosine)
+  - Model:   nomic-ai/nomic-embed-text-v2-moe  (768-dim, cosine)
   - Device:  cpu
   - Chroma:  PersistentClient -> ./chroma_db
   - Input:   per-pack *_chunks.jsonl files, one JSON object per line
@@ -37,7 +37,7 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 
 # ---- config ---------------------------------------------------------------
-MODEL_NAME   = "BAAI/bge-large-en-v1.5"
+MODEL_NAME   = "nomic-ai/nomic-embed-text-v2-moe"
 DEVICE       = "cpu"                 # "cuda" if you have a GPU
 CHUNK_GLOB   = "*/chunks/*_chunks.jsonl"   # adjust to where your JSONL live
 CHROMA_PATH  = "./chroma_db"
@@ -82,15 +82,27 @@ def sanitize_metadata(meta):
     return clean
 
 
-def embed_text_for_doc(text, title=None, section=None):
+DOC_PREFIX = "search_document: "
+
+
+def embed_text_for_doc(text, doc_id=None, section=None):
     """
-    Prepend lightweight context (title / section) so terse technical chunks
-    embed with semantic anchors. bge-v1.5 docs take NO instruction prefix.
+    Prepend lightweight context (doc_id / section) so terse technical chunks
+    embed with semantic anchors, plus the search_document: instruction prefix
+    nomic-embed-text-v2-moe requires on the document side.
+
+    Uses doc_id rather than a "title" field -- no chunk metadata actually
+    carries a title, and section names alone (e.g. "Overview", "Contacts")
+    repeat verbatim across unrelated documents, which pulled unrelated docs'
+    same-named sections closer together in embedding space instead of
+    disambiguating them.
     """
-    prefix_bits = [b for b in (title, section) if b]
+    prefix_bits = [b for b in (doc_id, section) if b]
     if prefix_bits:
-        return " | ".join(prefix_bits) + "\n\n" + text
-    return text
+        body = " | ".join(prefix_bits) + "\n\n" + text
+    else:
+        body = text
+    return DOC_PREFIX + body
 
 
 def main():
@@ -113,13 +125,13 @@ def main():
         ids.append(cid)
         docs_store.append(r["text"])  # store the clean text for retrieval
         docs_for_embed.append(
-            embed_text_for_doc(r["text"], meta.get("title"), meta.get("section"))
+            embed_text_for_doc(r["text"], meta.get("doc_id"), meta.get("section"))
         )
         metas.append(meta)
 
-    # ---- embed (document side: no prefix, normalized) ----
+    # ---- embed (document side: search_document: prefix, normalized) ----
     print(f"Loading model {MODEL_NAME} on {DEVICE} ...")
-    model = SentenceTransformer(MODEL_NAME, device=DEVICE)
+    model = SentenceTransformer(MODEL_NAME, device=DEVICE, trust_remote_code=True)
     print("Embedding ...")
     vectors = model.encode(
         docs_for_embed,
@@ -141,7 +153,7 @@ def main():
         pass
     coll = client.create_collection(
         name=COLLECTION,
-        metadata={"hnsw:space": "cosine"},   # match normalized BGE vectors
+        metadata={"hnsw:space": "cosine"},   # match normalized Nomic Embed vectors
     )
 
     print("Adding to Chroma ...")
