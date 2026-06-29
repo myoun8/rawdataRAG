@@ -13,46 +13,24 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 import math
 import re
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Iterable
+
+from _common import PACKS, load_eval_questions, load_jsonl_dir, write_csv
 
 TOKEN_RE = re.compile(r"[a-z0-9']+")
 
+EVAL_CSV_FIELDS = [
+    'pack', 'top_n', 'queries', 'top1_accuracy', 'topk_accuracy',
+    'mrr', 'avg_query_time', 'total_query_time', 'num_chunks', 'num_questions',
+]
+
 
 def load_chunks(pack_dir: Path) -> list[dict]:
-    chunk_dir = pack_dir / 'chunks'
-    if not chunk_dir.is_dir():
-        raise FileNotFoundError(f'Chunks directory not found: {chunk_dir}')
-
-    chunks = []
-    for path in sorted(chunk_dir.glob('*.jsonl')):
-        with path.open('r', encoding='utf-8') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                chunks.append(json.loads(line))
-    return chunks
-
-
-def load_eval_questions(pack_dir: Path) -> list[dict]:
-    eval_dir = pack_dir / 'eval'
-    if not eval_dir.is_dir():
-        raise FileNotFoundError(f'Eval directory not found: {eval_dir}')
-
-    questions: list[dict] = []
-    for path in sorted(eval_dir.glob('*.jsonl')):
-        with path.open('r', encoding='utf-8') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                questions.append(json.loads(line))
-    return questions
+    return load_jsonl_dir(pack_dir / 'chunks')
 
 
 def tokenize(text: str) -> list[str]:
@@ -180,26 +158,6 @@ def print_eval_summary(metrics: dict[str, object], top_n: int) -> None:
     print(f"  total query time: {metrics['total_query_time']:.4f}s")
 
 
-def write_evaluation_csv(rows: list[dict[str, object]], csv_path: Path) -> None:
-    fieldnames = [
-        'pack',
-        'top_n',
-        'queries',
-        'top1_accuracy',
-        'topk_accuracy',
-        'mrr',
-        'avg_query_time',
-        'total_query_time',
-        'num_chunks',
-        'num_questions',
-    ]
-    with csv_path.open('w', newline='', encoding='utf-8') as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key, '') for key in fieldnames})
-
-
 def evaluate_pack_to_row(pack_name: str, root: Path, top_n: int) -> dict[str, object]:
     pack_dir = root / pack_name
     chunks = load_chunks(pack_dir)
@@ -217,30 +175,6 @@ def evaluate_pack_to_row(pack_name: str, root: Path, top_n: int) -> dict[str, ob
         'num_chunks': len(chunks),
         'num_questions': len(questions),
     }
-
-
-def query_chunks(chunks: list[dict], query: str, top_n: int) -> tuple[list[tuple[float, dict]], dict[str, float]]:
-    timings: dict[str, float] = {}
-    start = time.perf_counter()
-    chunk_vectors, idf = build_vectors(chunks)
-    timings['build_vectors'] = time.perf_counter() - start
-
-    start = time.perf_counter()
-    query_vector = embed_query(query, idf)
-    timings['embed_query'] = time.perf_counter() - start
-    if not query_vector:
-        return [], timings
-
-    start = time.perf_counter()
-    scored: list[tuple[float, dict]] = []
-    for chunk, vector in zip(chunks, chunk_vectors):
-        score = cosine_similarity(query_vector, vector)
-        if score > 0.0:
-            scored.append((score, chunk))
-    scored.sort(key=lambda item: (-item[0], item[1].get('chunk_id', '')))
-    timings['score_chunks'] = time.perf_counter() - start
-    timings['total'] = sum(timings.values())
-    return scored[:top_n], timings
 
 
 def format_chunk(chunk: dict, score: float) -> str:
@@ -281,40 +215,26 @@ def main() -> int:
             print(f'ERROR: Pack directory not found: {pack_dir}')
             return 1
 
-        try:
-            chunks = load_chunks(pack_dir)
-        except FileNotFoundError as exc:
-            print(f'ERROR: {exc}')
-            return 1
-
+        chunks = load_chunks(pack_dir)
         if not chunks:
             print(f'No chunks loaded from {pack_dir / "chunks"}')
             return 1
 
     if args.evaluate_all:
-        pack_names = ['candor', 'common', 'nse', 'vsans']
         results: list[dict[str, object]] = []
-        for pack_name in pack_names:
-            try:
-                row = evaluate_pack_to_row(pack_name, root, args.top)
-                results.append(row)
-            except FileNotFoundError as exc:
-                print(f'WARNING: Skipping {pack_name}: {exc}')
+        for pack_name in PACKS:
+            row = evaluate_pack_to_row(pack_name, root, args.top)
+            results.append(row)
         if not results:
             print('No evaluation results were generated.')
             return 1
         output_path = Path(args.output_csv)
-        write_evaluation_csv(results, output_path)
+        write_csv(results, EVAL_CSV_FIELDS, output_path)
         print(f'Wrote evaluation results for {len(results)} packs to {output_path}')
         return 0
 
     if args.evaluate:
-        try:
-            questions = load_eval_questions(pack_dir)
-        except FileNotFoundError as exc:
-            print(f'ERROR: {exc}')
-            return 1
-
+        questions = load_eval_questions(pack_dir)
         if not questions:
             print(f'No eval questions found in {pack_dir / "eval"}')
             return 1

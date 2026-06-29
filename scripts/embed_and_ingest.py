@@ -33,16 +33,12 @@ Adjust the field access in load_chunks() to match your actual schema.
 
 import json
 import glob
-import chromadb
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+
+from _common import COLLECTION, open_vectorstore
 
 # ---- config ---------------------------------------------------------------
-OLLAMA_MODEL    = "nomic-embed-text"
 OLLAMA_BASE_URL = "http://localhost:11434"
 CHUNK_GLOB   = "*/chunks/*_chunks.jsonl"   # adjust to where your JSONL live
-CHROMA_PATH  = "./chroma_db"
-COLLECTION   = "ncnr_rag"
 BATCH        = 64
 # ---------------------------------------------------------------------------
 
@@ -136,8 +132,11 @@ def main():
         metas.append(meta)
 
     # ---- embed (document side: search_document: prefix, normalized) ----
-    embedder = OllamaEmbeddings(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
-    print(f"Embedding via Ollama ({OLLAMA_MODEL}) ...")
+    # delete-and-recreate the collection so re-runs are clean (TEST index, safe to wipe).
+    # Wrapped in langchain_chroma.Chroma so the collection this script produces is the
+    # same vectorstore object query_rag.py / the eval scripts consume as a retriever.
+    vectorstore, embedder = open_vectorstore(base_url=OLLAMA_BASE_URL, recreate=True)
+    print(f"Embedding via Ollama ({embedder.model}) ...")
     vectors = []
     for i in range(0, len(docs_for_embed), BATCH):
         batch = docs_for_embed[i:i + BATCH]
@@ -147,22 +146,6 @@ def main():
     # sanity: dimension must match what the collection will expect
     dim = len(vectors[0])
     print(f"Embedding dimension: {dim}")
-
-    # ---- create collection (cosine) and add ----
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    # delete-and-recreate so re-runs are clean (TEST index, safe to wipe)
-    try:
-        client.delete_collection(COLLECTION)
-    except Exception:
-        pass
-    # Wrap in langchain_chroma.Chroma so the collection this script produces is the
-    # same vectorstore object query_rag.py / the eval scripts consume as a retriever.
-    vectorstore = Chroma(
-        client=client,
-        collection_name=COLLECTION,
-        embedding_function=embedder,
-        collection_metadata={"hnsw:space": "cosine"},   # match normalized Nomic Embed vectors
-    )
 
     print("Adding to Chroma ...")
     # Chroma.add_texts()/from_documents() always re-embeds page_content themselves

@@ -23,45 +23,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 from pathlib import Path
 
-import chromadb
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from _common import PACKS, QUERY_PREFIX, add_eval_cli_args, load_eval_questions, load_pack_chunk_ids, open_vectorstore, write_csv
 
-MODEL_NAME = "nomic-embed-text"
-QUERY_PREFIX = "search_query: "
-CHROMA_PATH = "./chroma_db"
-COLLECTION = "ncnr_rag"
-PACKS = ["candor", "common", "nse", "vsans"]
-
-
-def load_eval_questions(pack_dir: Path) -> list[dict]:
-    eval_dir = pack_dir / "eval"
-    questions: list[dict] = []
-    for path in sorted(eval_dir.glob("*.jsonl")):
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    questions.append(json.loads(line))
-    return questions
-
-
-def load_pack_chunk_ids(pack_dir: Path) -> set[str]:
-    """Chunk IDs that belong to this pack, per its own chunks/*.jsonl files.
-    Mirrors test_retrieval_embedding.py's scoping (by chunk file membership,
-    not the chunk's own 'instrument' metadata field, which is sometimes
-    mislabeled)."""
-    chunk_dir = pack_dir / "chunks"
-    ids: set[str] = set()
-    for path in sorted(chunk_dir.glob("*.jsonl")):
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    ids.add(json.loads(line)["chunk_id"])
-    return ids
+EVAL_CSV_FIELDS = ["pack", "top_n", "queries", "mean_context_precision", "mean_context_recall"]
 
 
 def context_precision_at_k(relevance: list[int]) -> float:
@@ -84,7 +50,7 @@ def context_recall(retrieved_source_ids: list[str], expected_sources: set[str]) 
     return len(found) / len(expected_sources)
 
 
-def evaluate_pack(pack_name: str, root: Path, vectorstore: Chroma, embedder: OllamaEmbeddings, top_n: int) -> dict[str, object]:
+def evaluate_pack(pack_name: str, root: Path, vectorstore, embedder, top_n: int) -> dict[str, object]:
     pack_dir = root / pack_name
     questions = load_eval_questions(pack_dir)
     pack_chunk_ids = load_pack_chunk_ids(pack_dir)
@@ -132,29 +98,13 @@ def evaluate_pack(pack_name: str, root: Path, vectorstore: Chroma, embedder: Oll
     return metrics
 
 
-def write_csv(rows: list[dict[str, object]], csv_path: Path) -> None:
-    fieldnames = ["pack", "top_n", "queries", "mean_context_precision", "mean_context_recall"]
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: row.get(k, "") for k in fieldnames})
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate retrieval using RAGAS-standard Context Precision/Recall.")
-    parser.add_argument("pack", nargs="?", help="Pack folder name (candor, vsans, nse, common)")
-    parser.add_argument("--top", type=int, default=5)
-    parser.add_argument("--evaluate", action="store_true")
-    parser.add_argument("--evaluate-all", action="store_true")
-    parser.add_argument("--output-csv", default="retrieval_results_ragas.csv")
-    parser.add_argument("--detail", action="store_true")
+    add_eval_cli_args(parser, "retrieval_results_ragas.csv")
     args = parser.parse_args()
 
     root = Path.cwd()
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    embedder = OllamaEmbeddings(model=MODEL_NAME)
-    vectorstore = Chroma(client=client, collection_name=COLLECTION, embedding_function=embedder)
+    vectorstore, embedder = open_vectorstore()
 
     if args.evaluate_all:
         rows = []
@@ -168,7 +118,7 @@ def main() -> int:
                 "mean_context_recall": metrics["mean_context_recall"],
             })
             print(f"{pack_name}: context_precision@{args.top}={metrics['mean_context_precision']:.3f} context_recall={metrics['mean_context_recall']:.3f}")
-        write_csv(rows, Path(args.output_csv))
+        write_csv(rows, EVAL_CSV_FIELDS, Path(args.output_csv))
         print(f"Wrote {args.output_csv}")
         return 0
 

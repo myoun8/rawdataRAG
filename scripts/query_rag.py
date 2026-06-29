@@ -70,19 +70,17 @@ import json
 import os
 import re
 import shlex
-from pathlib import Path
 from typing import Any, Optional
 
 try:
-    import chromadb
+    from _common import CHROMA_PATH, COLLECTION, EMBED_MODEL, QUERY_PREFIX, open_vectorstore
 except ImportError as exc:
     raise SystemExit(
         f"Missing dependency: {exc}\n"
         "Run: pip install -r requirements.txt"
     )
 
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings, ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -92,10 +90,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.prompts import ChatPromptTemplate
 
 # ── Config ───────────────────────────────────────────────────────────────────
-EMBED_MODEL         = "nomic-embed-text"
 EMBED_BASE_URL      = "http://localhost:11434"
-CHROMA_PATH         = Path(__file__).parent.parent / "chroma_db"
-COLLECTION          = "ncnr_rag"
 DEFAULT_BACKEND     = "ollama"
 OLLAMA_BASE_URL     = "http://localhost:11434"
 DEFAULT_MODEL       = "llama3.2"          # default for --backend ollama only
@@ -110,13 +105,6 @@ GB10_SSH_PASSWORD_ENV_VAR = "GB10_SSH_PASSWORD"
 GB10_SSH_KEY_FILE_ENV_VAR = "GB10_SSH_KEY_FILE"
 DEFAULT_SSH_PORT          = 22
 DEFAULT_REMOTE_NIM_PORT   = 8001
-
-# nomic-embed-text-v2-moe requires an instruction prefix on BOTH sides
-# (see nomic-ai/nomic-embed-text-v2-moe model card) -- this is the query-side prefix;
-# embed_and_ingest.py applies the matching "search_document: " prefix on the doc side.
-# OllamaEmbeddings has no knowledge of this convention, so it's still applied
-# explicitly here rather than inside the embeddings client.
-QUERY_PREFIX = "search_query: "
 
 # access_level cascade: each level includes all levels below it
 ACCESS_LEVEL_MAP = {
@@ -466,9 +454,7 @@ def main():
         )
 
     print("Connecting to Chroma ...")
-    client = chromadb.PersistentClient(path=str(CHROMA_PATH))
-    embedder = OllamaEmbeddings(model=EMBED_MODEL, base_url=EMBED_BASE_URL)
-    vectorstore = Chroma(client=client, collection_name=COLLECTION, embedding_function=embedder)
+    vectorstore, _embedder = open_vectorstore(base_url=EMBED_BASE_URL)
     try:
         vectorstore._collection.count()
     except Exception:

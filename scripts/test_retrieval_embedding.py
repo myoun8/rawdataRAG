@@ -7,59 +7,24 @@ Requires scripts/embed_and_ingest.py to have been run first (populates ./chroma_
 
 Usage:
   python scripts/test_retrieval_embedding.py --evaluate-all --output-csv retrieval_results_embedding.csv
-  python scripts/test_retrieval_embedding.py candor --evaluate --detail
+  python scripts/test_retrieval_embedding.py candor --detail
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 import time
 from pathlib import Path
 
-import chromadb
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from _common import PACKS, QUERY_PREFIX, add_eval_cli_args, load_eval_questions, load_pack_chunk_ids, open_vectorstore, write_csv
 
-MODEL_NAME = "nomic-embed-text"
-QUERY_PREFIX = "search_query: "
-CHROMA_PATH = "./chroma_db"
-COLLECTION = "ncnr_rag"
-PACK_INSTRUMENT = {
-    "candor": "CANDOR",
-    "vsans": "VSANS",
-    "nse": "NSE",
-    "common": "COMMON",
-}
+EVAL_CSV_FIELDS = [
+    "pack", "top_n", "queries", "top1_accuracy", "topk_accuracy",
+    "mrr", "avg_query_time", "total_query_time", "num_questions",
+]
 
 
-def load_eval_questions(pack_dir: Path) -> list[dict]:
-    eval_dir = pack_dir / "eval"
-    questions: list[dict] = []
-    for path in sorted(eval_dir.glob("*.jsonl")):
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    questions.append(json.loads(line))
-    return questions
-
-
-def load_pack_chunk_ids(pack_dir: Path) -> set[str]:
-    """Chunk IDs that belong to this pack, per its own chunks/*.jsonl files.
-    Mirrors test_retrieval.py's scoping (by chunk file membership, not the
-    chunk's own 'instrument' metadata field, which is sometimes mislabeled)."""
-    chunk_dir = pack_dir / "chunks"
-    ids: set[str] = set()
-    for path in sorted(chunk_dir.glob("*.jsonl")):
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    ids.add(json.loads(line)["chunk_id"])
-    return ids
-
-
-def evaluate_pack(pack_name: str, root: Path, vectorstore: Chroma, embedder: OllamaEmbeddings, top_n: int) -> dict[str, object]:
+def evaluate_pack(pack_name: str, root: Path, vectorstore, embedder, top_n: int) -> dict[str, object]:
     pack_dir = root / pack_name
     questions = load_eval_questions(pack_dir)
     pack_chunk_ids = load_pack_chunk_ids(pack_dir)
@@ -115,33 +80,17 @@ def evaluate_pack(pack_name: str, root: Path, vectorstore: Chroma, embedder: Oll
     return metrics
 
 
-def write_csv(rows: list[dict[str, object]], csv_path: Path) -> None:
-    fieldnames = ["pack", "top_n", "queries", "top1_accuracy", "topk_accuracy", "mrr", "avg_query_time", "total_query_time", "num_questions"]
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: row.get(k, "") for k in fieldnames})
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate embedding-based retrieval against pack eval questions.")
-    parser.add_argument("pack", nargs="?", help="Pack folder name (candor, vsans, nse, common)")
-    parser.add_argument("--top", type=int, default=5)
-    parser.add_argument("--evaluate", action="store_true")
-    parser.add_argument("--evaluate-all", action="store_true")
-    parser.add_argument("--output-csv", default="retrieval_results_embedding.csv")
-    parser.add_argument("--detail", action="store_true")
+    add_eval_cli_args(parser, "retrieval_results_embedding.csv")
     args = parser.parse_args()
 
     root = Path.cwd()
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    embedder = OllamaEmbeddings(model=MODEL_NAME)
-    vectorstore = Chroma(client=client, collection_name=COLLECTION, embedding_function=embedder)
+    vectorstore, embedder = open_vectorstore()
 
     if args.evaluate_all:
         rows = []
-        for pack_name in ["candor", "common", "nse", "vsans"]:
+        for pack_name in PACKS:
             metrics = evaluate_pack(pack_name, root, vectorstore, embedder, args.top)
             rows.append({
                 "pack": pack_name,
@@ -155,7 +104,7 @@ def main() -> int:
                 "num_questions": metrics["queries"],
             })
             print(f"{pack_name}: top1={metrics['accuracy_top1']:.3f} top{args.top}={metrics['accuracy_topk']:.3f} mrr={metrics['mrr']:.3f}")
-        write_csv(rows, Path(args.output_csv))
+        write_csv(rows, EVAL_CSV_FIELDS, Path(args.output_csv))
         print(f"Wrote {args.output_csv}")
         return 0
 

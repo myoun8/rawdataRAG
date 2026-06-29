@@ -67,14 +67,14 @@ def check_jsonl(path: Path) -> list[str]:
 def validate_chunks(pack_dir: Path, inventory_ids: set[str]) -> list[str]:
     errors: list[str] = []
     for path in sorted((pack_dir / 'chunks').glob('*.jsonl')):
-        errors.extend(check_jsonl(path))
         with path.open(encoding='utf-8') as f:
             for i, line in enumerate(f, start=1):
                 if not line.strip():
                     continue
                 try:
                     row = json.loads(line)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
+                    errors.append(f'{path}:{i}: invalid JSON: {exc}')
                     continue
                 missing = REQUIRED_CHUNK_FIELDS - row.keys()
                 if missing:
