@@ -481,7 +481,7 @@ def main():
         query_embeddings=[query_vec],
         n_results=fetch_n,
         where=where_filter,
-        include=["documents", "metadatas", "distances"],
+        include=["documents", "metadatas", "distances"],    
     )
 
     if not results["documents"][0]:
