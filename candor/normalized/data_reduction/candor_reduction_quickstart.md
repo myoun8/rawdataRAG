@@ -3,7 +3,7 @@ doc_id: candor_reflectometry_software
 source_id: CANDOR-002
 title: Reflectometry Software — Data Reduction and Analysis
 instrument: CANDOR
-workflow_stage: data_reduction_analysis
+workflow_stage: data_reduction
 source_type: web_page
 access_level: public
 status: current

@@ -20,27 +20,30 @@ See `PACK_STRUCTURE.md` for the full folder layout and required metadata fields,
 
 1. Add sources to `<pack>/source_inventory.csv`.
 2. Save unmodified source files under `<pack>/originals/`.
-3. Convert each source to Markdown under `<pack>/normalized/`, organized into the stage subfolders from `PACK_STRUCTURE.md`.
-4. Add YAML frontmatter to each Markdown file (`doc_id`, `source_id`, `instrument`, `workflow_stage`, `source_type`, `access_level`, `status`, `owner`, `last_reviewed`, `source_url_or_path`, `citation_required`).
-5. Run `python scripts/chunk_markdown.py <pack>` to split `normalized/**/*.md` into chunk JSONL.
-6. Run `python scripts/validate_pack.py <pack>` to check structure, JSONL syntax, and cross-references against the source inventory.
-7. Review output with instrument owners.
-8. Run `python scripts/embed_and_ingest.py` to embed every pack's chunks and load them into the local Chroma vector store.
-9. Use `python scripts/query_rag.py "<question>" [--pack <pack>]` for end-to-end RAG question answering.
+3. Add your Groq API key to a `.env` file in the repo root: `GROQ_API_KEY=gsk_...`
+4. Run `python scripts/run_pipeline.py [--pack <pack>]` — this chains all four steps automatically:
+   - Converts originals to normalized Markdown via the Groq API (interactive: confirms stage per file)
+   - Chunks `normalized/**/*.md` into JSONL
+   - Validates pack structure, JSONL syntax, and metadata
+   - Embeds all chunks and loads them into the local Chroma vector store
+5. Use `python scripts/query_rag.py "<question>" [--pack <pack>]` for end-to-end RAG question answering.
+
+Individual steps can also be run directly — see **Scripts** below.
 
 ## Scripts (`scripts/`)
 
+- `run_pipeline.py` — **main entry point**; chains all four ingestion steps in order. Reads `GROQ_API_KEY` from `.env` or the environment. Flags: `--pack`, `--model` (default: `moonshotai/kimi-k2-instruct`), `--skip-normalize`, `--skip-validate`, `--dry-run`.
+- `full_document_ingestion.py` — converts files in `originals/` to normalized Markdown using the Groq API. Interactive: streams each file's output and asks you to confirm the workflow stage before writing. Args: `--model NAME` (required), `[--api-key KEY]`, `[--pack PACK]`, `[--dry-run]`. API key falls back to `GROQ_API_KEY` env var.
 - `chunk_markdown.py <pack>` — stdlib-only heading-based chunker; splits `normalized/**/*.md` by H2 headings into `<pack>_chunks.generated.jsonl`.
-- `embed_and_ingest.py` — embeds every pack's `chunks/*_chunks.jsonl` with `nomic-ai/nomic-embed-text-v2-moe` and loads them into a Chroma `PersistentClient` at `./chroma_db` (collection `ncnr_rag`). Requires `sentence_transformers`, `chromadb`, `einops`.
 - `validate_pack.py <pack>` — validates a pack's required files/dirs, JSONL syntax, chunk/metadata completeness, and cross-references chunk `source_id`s against `source_inventory.csv`.
-- `test_retrieval.py` — stdlib-only TF-IDF retrieval/evaluation baseline (`<pack> "<query>"`, `<pack> --evaluate`, or `--evaluate-all`).
-- `test_retrieval_embedding.py` — embedding-based counterpart to `test_retrieval.py`, evaluated against the Chroma collection from `embed_and_ingest.py`.
+- `embed_and_ingest.py` — embeds every pack's `chunks/*_chunks.jsonl` with `nomic-embed-text` via Ollama and loads them into a Chroma `PersistentClient` at `./chroma_db` (collection `ncnr_rag`). Requires Ollama running with `nomic-embed-text` pulled.
+- `test_retrieval_embedding.py` — embedding-based retrieval evaluation against the Chroma collection from `embed_and_ingest.py`; reports top-1/top-k accuracy and MRR.
 - `evaluate_retrieval_ragas.py` — embedding-based retrieval evaluation using RAGAS-standard Context Precision@K and Context Recall against each eval question's `expected_sources`.
 - `query_rag.py "<question>"` — end-to-end RAG query: embeds the question, retrieves filtered chunks from Chroma, and calls an LLM (`--backend ollama|openai|ssh`) with the retrieved context.
 
-Run any script with `--help` (where supported) or see `CLAUDE.md` for full per-script usage and flags.
+Run any script with `--help` or see `CLAUDE.md` for full per-script usage and flags.
 
-`requirements.txt` pins `sentence_transformers`, `chromadb`, `paramiko`, and `einops`, needed before running `embed_and_ingest.py`, `query_rag.py`, `test_retrieval_embedding.py`, or `evaluate_retrieval_ragas.py`.
+`requirements.txt` pins `chromadb`, `paramiko`, `groq`, `pypdf`, and the LangChain integration packages needed for embedding, vectorstore, and chat-model access.
 
 ## Pack folders
 
