@@ -401,6 +401,23 @@
 
     function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
 
+    /* ── forward scroll/touch anywhere on the page to #chat ── */
+    document.addEventListener('wheel', (e) => {
+      if (e.target.closest('.step-code, #user-input')) return;
+      chatEl.scrollTop += e.deltaY;
+    }, { passive: true });
+
+    let _touchY = 0;
+    document.addEventListener('touchstart', (e) => {
+      _touchY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (e.target.closest('.step-code, #user-input')) return;
+      const dy = _touchY - e.touches[0].clientY;
+      _touchY  = e.touches[0].clientY;
+      chatEl.scrollTop += dy;
+    }, { passive: true });
+
     /* ── switch to chat layout on first message ── */
     function enterChatMode() {
       if (!document.body.classList.contains('chatting')) {
@@ -589,7 +606,7 @@
       function startStreamInterval() {
         if (streamInterval) return;
         renderStream(); // immediate first paint
-        streamInterval = setInterval(renderStream, 250);
+        streamInterval = setInterval(renderStream, 80);
       }
 
       function stopStreamInterval() {
