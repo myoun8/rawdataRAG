@@ -100,15 +100,16 @@ async def run_agent():
 
         print("\nThinking...")
 
-        result = await agent_executor.ainvoke(
+        async for chunk in agent_executor.astream(
             {"messages": [("user", user_query)]},
-            config=config
-        )
-        final_msg = result["messages"][-1]
-        content = final_msg.content
-        if isinstance(content, list):
-            content = "".join(block.get("text", "") for block in content if isinstance(block, dict))
-        print(f"\nAssistant: {content}")
+            config=config,
+            stream_mode="updates"
+        ):
+            for node_name, node_data in chunk.items():
+                print(f"\n[NODE: {node_name}]")
+                if "messages" in node_data:
+                    for msg in node_data["messages"]:
+                        msg.pretty_print()
                         
 
 if __name__ == "__main__":

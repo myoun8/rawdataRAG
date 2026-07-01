@@ -26,7 +26,7 @@ except ImportError as exc:
         f"Missing dependency: {exc}\n"
         "Run: pip install -r requirements.txt"
     )
-DEFAULT_TOP    = 5
+DEFAULT_TOP    = 3
 
 ACCESS_LEVEL_MAP = {
     "public":     ["public"],
