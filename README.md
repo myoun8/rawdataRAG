@@ -34,7 +34,9 @@ RCHAT_API_KEY=...             # required for full_document_ingestion.py / run_pi
    - Chunks `normalized/**/*.md` into JSONL
    - Validates pack structure, JSONL syntax, and metadata
    - Embeds all chunks and loads them into the local Chroma vector store
-5. Start the interactive agent with `python agent.py` to query the knowledge base via conversation.
+5. Query the knowledge base:
+   - **Web UI** — `python app.py` then open [http://127.0.0.1:8000](http://127.0.0.1:8000) for a browser chat interface.
+   - **CLI** — `python agent.py` for a terminal REPL.
 
 Individual steps can also be run directly — see **Scripts** below.
 
@@ -53,24 +55,34 @@ Individual steps can also be run directly — see **Scripts** below.
 
 Run any script with `--help` or see `CLAUDE.md` for full per-script usage and flags.
 
-`requirements.txt` pins `chromadb`, `paramiko`, `groq`, `pypdf`, the LangChain integration packages (`langchain-core`, `langchain-ollama`, `langchain-chroma`, `langchain-openai`), and the agent-layer packages (`fastmcp`, `langgraph`, `langchain-mcp-adapters`, `python-dotenv`).
+`requirements.txt` pins `chromadb`, `paramiko`, `groq`, `pypdf`, the LangChain integration packages (`langchain-core`, `langchain-ollama`, `langchain-chroma`, `langchain-openai`), and the agent-layer packages (`fastmcp`, `langgraph`, `langchain-mcp-adapters`, `python-dotenv`, `fastapi`, `uvicorn`).
 
-## Interactive agent (`agent.py`)
+## Agent interfaces
 
-`agent.py` is a LangGraph-based conversational agent that combines structured NCNR API access with the local RAG knowledge base in a single interactive REPL.
+Both interfaces share the same LangGraph agent: structured NCNR API access + local RAG knowledge base, backed by the NIST RChat LLM (`gemma-4-31B-it`, OpenAI-compatible). Set `RCHAT_API_KEY` in `.env`.
+
+The agent connects to two data sources:
+
+- **Structured API** — the NCNR CHRNS metadata REST API (`openAPI.json`) via an OpenAPI MCP server (`@ivotoby/openapi-mcp-server`, invoked automatically via `npx`). Exposes `search-instruments`, `search-experiments`, and `search-datafiles` tools.
+- **RAG knowledge base** — `gen_chunks` (semantic retrieval from Chroma) and `run_pipeline` (ingestion trigger) surfaced as LangChain `StructuredTool`s backed by `mcpServer.py`.
+
+Conversation memory is maintained within a session via LangGraph's `MemorySaver`. `openAPI.json` contains the OpenAPI 3.0 spec for the NCNR CHRNS metadata search API and is read at agent startup.
+
+### Web UI (`app.py`)
+
+```
+python app.py
+```
+
+Starts a FastAPI server at [http://127.0.0.1:8000](http://127.0.0.1:8000) serving a minimal browser chat interface (`static/index.html`). The agent is initialized once on startup and shared across requests; each browser tab gets its own conversation thread.
+
+### CLI (`agent.py`)
 
 ```
 python agent.py
 ```
 
-The agent connects to two data sources:
-
-- **Structured API** — the NCNR CHRNS metadata REST API (`openAPI.json`) is wired in via an OpenAPI MCP server (`@ivotoby/openapi-mcp-server`, invoked automatically via `npx`). Exposes `search-instruments`, `search-experiments`, and `search-datafiles` tools.
-- **RAG knowledge base** — `gen_chunks` (semantic retrieval from the local Chroma vectorstore) and `run_pipeline` (full ingestion trigger) are surfaced as LangChain `StructuredTool`s backed by `mcpServer.py`.
-
-The LLM backend is NIST's RChat endpoint (OpenAI-compatible, model `gemma-4-31B-it`). Set `RCHAT_API_KEY` in `.env`. Conversation memory is maintained within a session via LangGraph's `MemorySaver`.
-
-`openAPI.json` contains the OpenAPI 3.0 spec for the NCNR CHRNS metadata search API and is read at agent startup.
+Interactive terminal REPL — identical agent, no browser required.
 
 ## Pack folders
 

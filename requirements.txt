@@ -10,3 +10,5 @@ fastmcp>=2.0,<3.0          # mcpServer.py — MCP server exposing the pipeline a
 langgraph>=0.2,<0.4        # agent.py — create_react_agent, MemorySaver
 langchain-mcp-adapters>=0.1,<0.2  # agent.py — MultiServerMCPClient
 python-dotenv>=1.0,<2.0    # agent.py — load_dotenv
+fastapi>=0.111,<1.0        # app.py — web server
+uvicorn>=0.29,<1.0         # app.py — ASGI runner
