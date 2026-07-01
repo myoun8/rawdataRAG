@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NCNR Assistant</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -195,6 +197,8 @@
     }
     .response-body th { background: #f0ede6; font-weight: 600; }
 
+    .math-block { text-align: center; margin: 12px 0; overflow-x: auto; }
+
     .cursor {
       display: inline-block; width: 2px; height: 1em;
       background: #c96442; margin-left: 1px;
@@ -280,6 +284,107 @@
 
   <script>
     marked.setOptions({ breaks: true });
+
+    /* ── KaTeX + marked integration ───────────────────────────────────────
+       Intercepts math delimiters BEFORE markdown can mangle subscripts (_)
+       or asterisks (*). Handles: $$…$$  \[…\]  $…$  \(…\)              */
+    marked.use({
+      extensions: [
+        {
+          name: 'blockMath',
+          level: 'block',
+          start(src) {
+            const a = src.indexOf('$$'), b = src.indexOf('\\[');
+            return Math.min(a < 0 ? Infinity : a, b < 0 ? Infinity : b);
+          },
+          tokenizer(src) {
+            const m = src.match(/^\$\$([\s\S]+?)\$\$/) ||
+                      src.match(/^\\\[([\s\S]+?)\\\]/);
+            if (m) return { type: 'blockMath', raw: m[0], text: m[1].trim() };
+          },
+          renderer(t) {
+            try {
+              return '<div class="math-block">' +
+                katex.renderToString(t.text, { displayMode: true, throwOnError: false }) +
+                '</div>';
+            } catch { return '<pre>' + t.text + '</pre>'; }
+          }
+        },
+        {
+          name: 'inlineMath',
+          level: 'inline',
+          start(src) {
+            const a = src.indexOf('$'), b = src.indexOf('\\(');
+            return Math.min(a < 0 ? Infinity : a, b < 0 ? Infinity : b);
+          },
+          tokenizer(src) {
+            const m = src.match(/^\$(?!\$)((?:\\[\s\S]|[^$\n])+?)\$(?!\$)/) ||
+                      src.match(/^\\\(([\s\S]+?)\\\)/);
+            if (m) return { type: 'inlineMath', raw: m[0], text: m[1].trim() };
+          },
+          renderer(t) {
+            try {
+              return katex.renderToString(t.text, { displayMode: false, throwOnError: false });
+            } catch { return '<code>' + t.text + '</code>'; }
+          }
+        }
+      ]
+    });
+
+    /* Render markdown + LaTeX into el. Used both during streaming and on done. */
+    function renderFull(el, text) {
+      el.innerHTML = text
+        ? marked.parse(text)
+        : '<em style="color:#aaa">No response.</em>';
+    }
+
+    /*
+     * Split rawText into [safeToRender, pendingTail].
+     * Any unclosed math delimiter is held back as plain tail text so KaTeX
+     * never receives a half-finished expression during streaming.
+     */
+    function safeSplit(text) {
+      // ── $$ display math ──────────────────────────────────────────────────
+      let pos = 0, count = 0, lastOpen = -1;
+      while ((pos = text.indexOf('$$', pos)) !== -1) {
+        count % 2 === 0 ? (lastOpen = pos) : 0;
+        count++;
+        pos += 2;
+      }
+      if (count % 2 === 1) return [text.slice(0, lastOpen), text.slice(lastOpen)];
+
+      // ── \[...\] display math ──────────────────────────────────────────────
+      pos = 0;
+      while ((pos = text.indexOf('\\[', pos)) !== -1) {
+        const close = text.indexOf('\\]', pos + 2);
+        if (close === -1) return [text.slice(0, pos), text.slice(pos)];
+        pos = close + 2;
+      }
+
+      // ── \(...\) inline math ───────────────────────────────────────────────
+      pos = 0;
+      while ((pos = text.indexOf('\\(', pos)) !== -1) {
+        const close = text.indexOf('\\)', pos + 2);
+        if (close === -1) return [text.slice(0, pos), text.slice(pos)];
+        pos = close + 2;
+      }
+
+      // ── $...$ inline math ─────────────────────────────────────────────────
+      // Strip $$ first so they don't interfere with single-$ counting.
+      const stripped = text.replace(/\$\$/g, '\x00\x00');
+      const singles  = [...stripped.matchAll(/\$/g)];
+      if (singles.length % 2 === 1) {
+        // Find the position of the last unmatched $ in the original string
+        let raw = text, open = -1, inMath = false;
+        for (let i = 0; i < raw.length; i++) {
+          if (raw[i] === '$' && raw[i + 1] === '$') { i++; continue; }
+          if (raw[i] === '$') { if (!inMath) { open = i; inMath = true; } else inMath = false; }
+        }
+        if (inMath && open !== -1) return [text.slice(0, open), text.slice(open)];
+      }
+
+      return [text, ''];
+    }
 
     const chatEl  = document.getElementById('chat');
     const inputEl = document.getElementById('user-input');
@@ -437,9 +542,7 @@
         stepsPanel.remove();
       }
 
-      responseEl.innerHTML = rawText
-        ? marked.parse(rawText)
-        : '<em style="color:#aaa">No response.</em>';
+      renderFull(responseEl, rawText);
 
       scrollBottom();
     }
@@ -457,11 +560,12 @@
       const refs = createAssistantTurn();
       const { statusTxt, stepsPanel, responseEl } = refs;
 
-      let rawText     = '';
-      let steps       = [];
-      let stepPending = {};
-      let cursor      = null;
-      let finalized   = false;
+      let rawText        = '';
+      let steps          = [];
+      let stepPending    = {};
+      let cursor         = null;
+      let finalized      = false;
+      let streamInterval = null;
 
       function ensureCursor() {
         if (!cursor) {
@@ -471,6 +575,30 @@
         }
       }
       function removeCursor() { cursor?.remove(); cursor = null; }
+
+      /* Render the safe (complete-delimiter) portion; append the raw tail. */
+      function renderStream() {
+        const [safe, tail] = safeSplit(rawText);
+        removeCursor();
+        renderFull(responseEl, safe);
+        if (tail) {
+          const tailNode = document.createTextNode(tail);
+          responseEl.appendChild(tailNode);
+        }
+        ensureCursor();
+        scrollBottom();
+      }
+
+      function startStreamInterval() {
+        if (streamInterval) return;
+        renderStream(); // immediate first paint
+        streamInterval = setInterval(renderStream, 250);
+      }
+
+      function stopStreamInterval() {
+        clearInterval(streamInterval);
+        streamInterval = null;
+      }
 
       function handleEvent(data) {
         switch (data.type) {
@@ -498,10 +626,7 @@
 
           case 'token':
             rawText += data.text;
-            removeCursor();
-            responseEl.textContent = rawText;
-            ensureCursor();
-            scrollBottom();
+            startStreamInterval();
             break;
 
           case 'error':
@@ -511,6 +636,7 @@
           case 'done':
             if (finalized) break;
             finalized = true;
+            stopStreamInterval();
             removeCursor();
             finalizeTurn(refs, steps, rawText);
             sendBtn.disabled = false;
