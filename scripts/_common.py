@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import csv
 import json
+import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
 PACKS = ["candor", "common", "nse", "vsans"]
@@ -17,7 +20,47 @@ PACKS = ["candor", "common", "nse", "vsans"]
 CHROMA_PATH = Path(__file__).parent.parent / "chroma_db"
 COLLECTION = "ncnr_rag"
 EMBED_MODEL = "nomic-embed-text"
+EMBED_BASE_URL = "http://localhost:11434"
 QUERY_PREFIX = "search_query: "
+
+
+def _ollama_ready(timeout: float = 0.5) -> bool:
+    try:
+        urllib.request.urlopen(f"{EMBED_BASE_URL}/api/tags", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def _model_loaded() -> bool:
+    try:
+        with urllib.request.urlopen(f"{EMBED_BASE_URL}/api/tags", timeout=2) as r:
+            data = json.loads(r.read())
+        return any(m.get("name", "").startswith(EMBED_MODEL) for m in data.get("models", []))
+    except Exception:
+        return False
+
+
+def ensure_ollama() -> None:
+    if not _ollama_ready():
+        print("Ollama not running — starting 'ollama serve' ...")
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(20):
+            time.sleep(0.5)
+            if _ollama_ready():
+                break
+        else:
+            raise SystemExit("Ollama did not start within 10 s. Is it installed?")
+
+    if not _model_loaded():
+        print(f"Pulling embedding model '{EMBED_MODEL}' ...")
+        result = subprocess.run(["ollama", "pull", EMBED_MODEL])
+        if result.returncode != 0:
+            raise SystemExit(f"Failed to pull '{EMBED_MODEL}'.")
 
 
 def load_jsonl_dir(dir_path: Path) -> list[dict]:

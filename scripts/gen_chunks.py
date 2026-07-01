@@ -17,14 +17,15 @@ Usage:
 import argparse
 
 try:
-    from _common import CHROMA_PATH, COLLECTION, EMBED_MODEL, QUERY_PREFIX, open_vectorstore
+    from _common import (
+        CHROMA_PATH, COLLECTION, EMBED_MODEL, EMBED_BASE_URL,
+        QUERY_PREFIX, open_vectorstore, ensure_ollama,
+    )
 except ImportError as exc:
     raise SystemExit(
         f"Missing dependency: {exc}\n"
         "Run: pip install -r requirements.txt"
     )
-
-EMBED_BASE_URL = "http://localhost:11434"
 DEFAULT_TOP    = 5
 
 ACCESS_LEVEL_MAP = {
@@ -80,6 +81,8 @@ def main():
         help="Maximum access level to include (default: public)",
     )
     args = parser.parse_args()
+
+    ensure_ollama()
 
     if not CHROMA_PATH.exists():
         raise SystemExit(
