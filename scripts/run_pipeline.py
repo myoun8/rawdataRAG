@@ -9,20 +9,17 @@ Chains the full RAG ingestion pipeline in order:
   3. validate_pack.py            — structural/schema linting  (per pack; skippable)
   4. embed_and_ingest.py         — embed all chunks and load into Chroma
 
-After completion, query the knowledge base with:
-  python scripts/query_rag.py "<question>" [--pack PACK]
-
-Normalisation (step 1) uses the Groq API.
+Normalisation (step 1) uses the RChat API (OpenAI-compatible).
 RCHAT_API_KEY is read from a .env file in the repo root (or the environment).
 
 Flags:
   --skip-normalize   Skip step 1 (originals already normalized)
   --skip-validate    Skip step 3
-  --model NAME       Groq model to use (default: moonshotai/kimi-k2-instruct)
+  --model NAME       RChat model to use (default: gemma-4-31B-it)
 
 Usage:
   python scripts/run_pipeline.py [--pack PACK] [--skip-normalize] [--skip-validate]
-      [--model moonshotai/kimi-k2-instruct] [--dry-run]
+      [--model gemma-4-31B-it] [--dry-run]
 """
 
 import argparse
@@ -36,7 +33,7 @@ SCRIPTS = REPO_ROOT / "scripts"
 PACKS = ["candor", "nse", "vsans", "common"]
 
 RCHAT_API_KEY_ENV = "RCHAT_API_KEY"
-DEFAULT_MODEL = "moonshotai/kimi-k2-instruct"
+DEFAULT_MODEL = "gemma-4-31B-it"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -86,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true",
                    help="Pass --dry-run to full_document_ingestion.py; other steps still run")
     p.add_argument("--model", default=DEFAULT_MODEL, metavar="NAME",
-                   help=f"Groq model name (default: {DEFAULT_MODEL})")
+                   help=f"RChat model name (default: {DEFAULT_MODEL})")
     return p
 
 
@@ -115,7 +112,7 @@ def main() -> None:
             cmd += ["--pack", args.pack]
         if args.dry_run:
             cmd.append("--dry-run")
-        run_step(cmd, "Step 1/4 — Normalize originals via Groq (full_document_ingestion.py)")
+        run_step(cmd, f"Step 1/4 — Normalize originals via RChat [{args.model}] (full_document_ingestion.py)")
 
     # ── Step 2: Chunk ────────────────────────────────────────────────────────
     for pack in packs:
@@ -140,11 +137,9 @@ def main() -> None:
 
     # ── Done ──────────────────────────────────────────────────────────────────
     print("\n" + "═" * 64)
-    print("  Pipeline complete! Query the knowledge base with:")
+    print("  Pipeline complete! Start the agent with:")
     print()
-    print('    python scripts/query_rag.py "<your question>"')
-    if args.pack:
-        print(f'    python scripts/query_rag.py "<question>" --pack {args.pack}')
+    print("    python agent.py")
     print("═" * 64 + "\n")
 
 

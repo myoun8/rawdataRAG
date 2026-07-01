@@ -3,13 +3,13 @@
 full_document_ingestion.py
 
 Converts original files in each pack's originals/ directory into normalized
-Markdown files using the Groq API.  Skips files that already have a
+Markdown files using the RChat API.  Skips files that already have a
 corresponding normalized .md.  For each new file, streams the model's output,
 then asks the user to confirm the target folder before writing.
 
 Usage:
   python scripts/full_document_ingestion.py \\
-      --model <model-name> \\
+      [--model <model-name>] \\
       [--api-key KEY] [--pack PACK] [--dry-run]
 
 --api-key defaults to the RCHAT_API_KEY env var.
@@ -26,7 +26,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Optional
 
-from groq import Groq
+from openai import OpenAI
 
 # ── Repo layout ────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,9 @@ ASSET_EXTENSIONS = {
 SKIP_NAMES = {".gitkeep", "README.md"}
 
 RCHAT_API_KEY_ENV_VAR = "RCHAT_API_KEY"
+RCHAT_ENDPOINT       = "https://rchat.nist.gov/api/v1/chat/completions"
+RCHAT_BASE_URL       = RCHAT_ENDPOINT.replace("/chat/completions", "")
+DEFAULT_MODEL        = "gemma-4-31B-it"
 MAX_CONTENT_CHARS    = 50_000
 
 
@@ -286,8 +289,8 @@ citation_required: <true | false>
 # ── API call ──────────────────────────────────────────────────────────────────
 
 def call_api(model: str, api_key: str, user_prompt: str) -> str:
-    """Stream a chat completion from Groq and return the full response text."""
-    client = Groq(api_key=api_key)
+    """Stream a chat completion from RChat and return the full response text."""
+    client = OpenAI(api_key=api_key, base_url=RCHAT_BASE_URL)
     parts: list[str] = []
     with client.chat.completions.create(
         model=model,
@@ -398,8 +401,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--model", required=True, metavar="NAME",
-        help="Groq model name (e.g. llama-3.3-70b-versatile)",
+        "--model", default=DEFAULT_MODEL, metavar="NAME",
+        help=f"RChat model name (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--api-key", default=None, metavar="KEY",
