@@ -10,6 +10,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* hide all scrollbar tracks while keeping scroll behaviour */
+    * { scrollbar-width: none; -ms-overflow-style: none; }
+    *::-webkit-scrollbar { display: none; }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: #faf9f7;
@@ -75,13 +79,14 @@
     }
 
     /* Assistant */
-    .assistant-turn { display: flex; gap: 14px; align-items: flex-start; }
+    .assistant-turn              { display: flex; gap: 14px; align-items: flex-start; }
+    .assistant-turn.thinking     { align-items: center; }
     .avatar {
       flex-shrink: 0;
-      width: 40px; height: 40px;
-      margin-top: 2px;
+      width: 36px; height: 36px;
     }
-    .avatar img { width: 100%; height: 100%; }
+    .avatar img         { width: 100%; height: 100%; }
+    .avatar img.rotating { animation: spin 2.4s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .assistant-body { flex: 1; min-width: 0; }
 
@@ -89,15 +94,10 @@
     .status-bar {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 14px;
       font-size: 13px;
       color: #777;
-    }
-    .status-logo {
-      flex-shrink: 0;
-      width: 36px; height: 36px;
-      animation: spin 2.4s linear infinite;
     }
     .status-text { flex: 1; }
     .details-btn {
@@ -424,20 +424,23 @@
     /* ── create an assistant turn shell, return live refs ── */
     function createAssistantTurn() {
       const turn = document.createElement('div');
-      turn.className = 'turn assistant-turn';
+      turn.className = 'turn assistant-turn thinking'; /* .thinking → align-items:center */
 
-      /* no avatar yet — injected by finalizeTurn once response arrives */
+      /* avatar present from the start; rotation class removed on completion */
+      const av    = document.createElement('div');
+      av.className = 'avatar';
+      const avImg = document.createElement('img');
+      avImg.src   = '/static/atom.svg';
+      avImg.alt   = '';
+      avImg.classList.add('rotating');
+      av.appendChild(avImg);
+
       const body = document.createElement('div');
       body.className = 'assistant-body';
 
-      /* status bar: [rotating logo]  [text]  [Details] — all in one row */
+      /* status bar: text + details only (logo is the avatar, already on the left) */
       const statusBar = document.createElement('div');
       statusBar.className = 'status-bar';
-
-      const statusLogo = document.createElement('img');
-      statusLogo.src       = '/static/atom.svg';
-      statusLogo.alt       = '';
-      statusLogo.className = 'status-logo';
 
       const statusTxt = document.createElement('span');
       statusTxt.className = 'status-text';
@@ -447,7 +450,6 @@
       detailsBtn.className = 'details-btn';
       detailsBtn.textContent = 'Details ▾';
 
-      statusBar.appendChild(statusLogo);
       statusBar.appendChild(statusTxt);
       statusBar.appendChild(detailsBtn);
 
@@ -461,6 +463,7 @@
       body.appendChild(statusBar);
       body.appendChild(stepsPanel);
       body.appendChild(responseEl);
+      turn.appendChild(av);
       turn.appendChild(body);
       chatEl.appendChild(turn);
       scrollBottom();
@@ -473,7 +476,7 @@
         scrollBottom();
       });
 
-      return { body, statusBar, statusTxt, detailsBtn, stepsPanel, responseEl };
+      return { turn, avImg, body, statusBar, statusTxt, detailsBtn, stepsPanel, responseEl };
     }
 
     /* ── add a step item to the panel ── */
@@ -508,19 +511,13 @@
 
     /* ── finalize turn after stream ends ── */
     function finalizeTurn(refs, steps, rawText) {
-      const { body, statusBar, stepsPanel, responseEl } = refs;
+      const { turn, avImg, body, statusBar, stepsPanel, responseEl } = refs;
 
-      /* remove the thinking status bar (takes the rotating logo with it) */
+      /* stop rotation — avatar stays exactly where it is, no layout shift */
+      avImg.classList.remove('rotating');
+      turn.classList.remove('thinking');
+
       statusBar.remove();
-
-      /* inject the static avatar — 1 copy, no animation */
-      const av    = document.createElement('div');
-      av.className = 'avatar';
-      const avImg = document.createElement('img');
-      avImg.src   = '/static/atom.svg';
-      avImg.alt   = '';
-      av.appendChild(avImg);
-      body.parentElement.insertBefore(av, body);
 
       if (steps.length > 0) {
         const summary = document.createElement('button');
